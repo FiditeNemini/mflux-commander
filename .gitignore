@@ -1,0 +1,19 @@
+.aider*
+# Temporary files
+*.tmp
+*.log
+
+# Output directories
+output/
+reports/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*~
+mflux_output*
