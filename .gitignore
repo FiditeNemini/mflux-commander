@@ -17,3 +17,5 @@ Thumbs.db
 *.swp
 *~
 mflux_output*
+
+__pycache*

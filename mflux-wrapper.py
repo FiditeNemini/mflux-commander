@@ -1,4 +1,9 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run -p 3.12 --script 
+# /// script
+# dependencies = [
+#   "mflux",
+# ]
+# ///
 """
 MFlux Generator Wrapper
 
@@ -75,7 +80,9 @@ def parse_args():
     parser.add_argument("--model", type=str, default="schnell", choices=["schnell", "dev"], 
                         help="Model type to use (schnell or dev, default: schnell)")
     parser.add_argument("--new", action="store_true", help="Force creation of new output directory")
-    parser.add_argument("--iterate", type=str, help="Comma-separated list of step counts to iterate through (requires --seed)")
+    parser.add_argument("--iterations", type=int, default=4, help="Number of iterations to generate (default: 4)")
+    parser.add_argument("--vary-seed", action="store_true", help="Generate variations using different random seeds (cannot be used with --seed)")
+    parser.add_argument("--vary-steps", type=str, help="Comma-separated list of step counts to iterate through (requires --seed)")
     parser.add_argument("--no-watch", action="store_true", help="Don't start live-server to monitor changes")
     
     # Resolution options (mutually exclusive)
@@ -95,10 +102,9 @@ def parse_args():
     
     # Other optional arguments
     parser.add_argument("--steps", type=int, help="Number of steps (defaults: 1 for schnell, 5 for dev)")
-    parser.add_argument("--variations", type=int, default=4, help="Number of variations to generate (default: 4)")
     parser.add_argument("--metadata", action="store_true", help="Include metadata in output")
     parser.add_argument("--output-dir", type=str, help="Output directory (default: auto-generated based on date)")
-    parser.add_argument("--seed", type=int, help="Starting seed (random if not provided)")
+    parser.add_argument("--seed", type=int, help="Starting seed (random if not provided, cannot be used with --vary-seed)")
     
     args = parser.parse_args()
     
@@ -147,17 +153,21 @@ def parse_args():
     elif args.square_xl:
         args.resolution = "2048x2048"
     
-    # Validate iterate command
-    if args.iterate:
+    # Validate vary-steps command
+    if args.vary_steps:
         if args.seed is None:
-            raise ValueError("--iterate requires --seed to be specified")
+            raise ValueError("--vary-steps requires --seed to be specified")
         try:
-            args.iterate_steps = [int(s.strip()) for s in args.iterate.split(",")]
+            args.vary_steps_list = [int(s.strip()) for s in args.vary_steps.split(",")]
         except ValueError:
-            raise ValueError("--iterate must be a comma-separated list of integers (e.g., '1,3,5,9')")
-        args.variations = len(args.iterate_steps)  # Override variations to match iterate steps
+            raise ValueError("--vary-steps must be a comma-separated list of integers (e.g., '1,3,5,9')")
+        args.iterations = len(args.vary_steps_list)  # Override iterations to match vary-steps list
         args.steps = None  # Clear any manually set steps
     
+    # Validate vary-seed and seed combination
+    if args.vary_seed and args.seed is not None:
+        raise ValueError("--vary-seed cannot be used with --seed")
+        
     return args
 
 def get_last_settings(base_dir):
@@ -191,7 +201,7 @@ def get_last_settings(base_dir):
                         "prompt": prompt,
                         "resolution": info.get("resolution"),
                         "style": style,
-                        "variations": info.get("variations", 4)  # Default to 4 if not found
+                        "iterations": info.get("iterations", 4)  # Default to 4 if not found
                     }
             except:
                 continue
@@ -238,9 +248,9 @@ def create_output_directories(args):
                 if not any([args.landscape, args.landscape_sm, args.landscape_lg, args.landscape_xl, args.portrait, args.portrait_sm, args.portrait_lg, args.portrait_xl, args.square_sm, args.square_xl]) and args.resolution == "1024x1024":
                     args.resolution = last_settings["resolution"]
                 
-                # Apply last variations if none specified and not using iterate
-                if args.variations == 4 and not hasattr(args, 'iterate_steps'):
-                    args.variations = last_settings["variations"]
+                # Apply last iterations if none specified and not using vary-steps
+                if args.iterations == 4 and not hasattr(args, 'vary_steps_list'):
+                    args.iterations = last_settings["iterations"]
                 
                 if args.prompt is None:
                     raise ValueError("No prompt specified and couldn't find last prompt in current session")
@@ -269,9 +279,9 @@ def create_output_directories(args):
                 if not any([args.landscape, args.landscape_sm, args.landscape_lg, args.landscape_xl, args.portrait, args.portrait_sm, args.portrait_lg, args.portrait_xl, args.square_sm, args.square_xl]) and args.resolution == "1024x1024":
                     args.resolution = last_settings["resolution"]
                 
-                # Apply last variations if none specified and not using iterate
-                if args.variations == 4 and not hasattr(args, 'iterate_steps'):
-                    args.variations = last_settings["variations"]
+                # Apply last iterations if none specified and not using vary-steps
+                if args.iterations == 4 and not hasattr(args, 'vary_steps_list'):
+                    args.iterations = last_settings["iterations"]
             else:
                 raise ValueError("No prompt specified and couldn't find last prompt in output directory")
     
@@ -294,17 +304,19 @@ def create_output_directories(args):
         "timestamp": datetime.datetime.now().isoformat(),
         "prompt": args.prompt,
         "model": args.model,
-        "steps": args.iterate if hasattr(args, 'iterate_steps') else (args.steps if args.steps is not None else get_default_steps(args.model)),
+        "steps": args.vary_steps if hasattr(args, 'vary_steps_list') else (args.steps if args.steps is not None else get_default_steps(args.model)),
         "resolution": args.resolution,
-        "variations": args.variations,
+        "iterations": args.iterations,
         "command_args": {
             "prompt": args.prompt,
             "model": args.model,
             "resolution": args.resolution,
             "metadata": args.metadata,
             "style": args.style if hasattr(args, 'style') else None,
-            "steps": args.iterate if hasattr(args, 'iterate_steps') else (args.steps if args.steps is not None else get_default_steps(args.model)),
-            "iterate": args.iterate if hasattr(args, 'iterate') else None,
+            "steps": args.vary_steps if hasattr(args, 'vary_steps_list') else (args.steps if args.steps is not None else get_default_steps(args.model)),
+            "vary_steps": args.vary_steps if hasattr(args, 'vary_steps') else None,
+            "vary_seed": args.vary_seed,
+            "seed": args.seed,
         },
         "results": []
     }
@@ -337,17 +349,18 @@ def generate_images(args, run_dir):
     # Parse resolution
     width, height = map(int, args.resolution.split('x'))
     
-    # Generate each variation
-    for i in range(args.variations):
-        # Generate a random seed if not provided
-        if args.seed is not None:
-            seed = args.seed + i
+    # Generate each iteration
+    for i in range(args.iterations):
+        # Generate a random seed if not provided or if vary-seed is specified
+        if args.seed is not None and not args.vary_seed:
+            # When using --vary-steps, use the same seed for all iterations
+            seed = args.seed
         else:
             seed = random.randint(1, 1000000)
         
-        # If iterating, use the corresponding step count
-        if hasattr(args, 'iterate_steps'):
-            current_steps = args.iterate_steps[i]
+        # If using vary-steps, use the corresponding step count
+        if hasattr(args, 'vary_steps_list'):
+            current_steps = args.vary_steps_list[i]
         else:
             current_steps = steps
         
@@ -370,7 +383,7 @@ def generate_images(args, run_dir):
         
         # Execute the command
         try:
-            print(f"\nGenerating variation {i+1}/{args.variations} with seed {seed} and steps {current_steps}...")
+            print(f"\nGenerating iteration {i+1}/{args.iterations} with seed {seed} and steps {current_steps}...")
             start_time = datetime.datetime.now()
             
             # Use Popen to capture output in real-time
@@ -438,8 +451,8 @@ def generate_html(base_dir, run_dir, results, args):
         base_prompt = args.prompt.split(",")[0].strip()
     
     # Format steps info
-    if hasattr(args, 'iterate_steps'):
-        steps_info = f"Steps: {args.iterate} (iterating)"
+    if hasattr(args, 'vary_steps_list'):
+        steps_info = f"Steps: {args.vary_steps} (varying)"
     else:
         steps = args.steps if args.steps is not None else get_default_steps(args.model)
         steps_info = f"Steps: {steps}"
@@ -452,10 +465,34 @@ def generate_html(base_dir, run_dir, results, args):
     <style>
         body {{ font-family: Arial, sans-serif; margin: 20px; }}
         .image-container {{ display: flex; flex-wrap: wrap; gap: 20px; }}
-        .image-card {{ border: 1px solid #ccc; padding: 15px; border-radius: 5px; max-width: 550px; }}
+        .image-card {{ border: 1px solid #ccc; padding: 15px; border-radius: 5px; max-width: 550px; position: relative; }}
         .image-card img {{ max-width: 100%; cursor: pointer; }}
-        .metadata {{ margin-top: 10px; font-family: monospace; white-space: pre-wrap; background: #f5f5f5; padding: 10px; border-radius: 5px; }}
-        .command {{ margin-top: 10px; font-family: monospace; background: #f0f0f0; padding: 10px; border-radius: 5px; overflow-x: auto; }}
+        .metadata {{ 
+            opacity: 0; 
+            position: absolute; 
+            bottom: 15px; 
+            left: 15px; 
+            right: 15px; 
+            background: rgba(0,0,0,0.7); 
+            color: white; 
+            padding: 10px; 
+            font-family: monospace; 
+            transition: opacity 0.3s; 
+            border-radius: 5px;
+            z-index: 10;
+        }}
+        .image-card:hover .metadata {{ opacity: 1; }}
+        .command {{ 
+            opacity: 0;
+            margin-top: 10px; 
+            font-family: monospace; 
+            background: #f0f0f0; 
+            padding: 10px; 
+            border-radius: 5px; 
+            overflow-x: auto;
+            transition: opacity 0.3s;
+        }}
+        .image-card:hover .command {{ opacity: 1; }}
         .command code {{ display: block; margin-top: 5px; }}
         .status {{ padding: 5px 10px; border-radius: 3px; display: inline-block; }}
         .in-progress {{ background: #fff3cd; color: #856404; }}
@@ -473,8 +510,8 @@ def generate_html(base_dir, run_dir, results, args):
         <p><strong>Resolution:</strong> {args.resolution}</p>
         <p><strong>{steps_info}</strong></p>
         <p><strong>Date:</strong> {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
-        <p><strong>Status:</strong> <span class="status {'complete' if len(results) == args.variations else 'in-progress'}">
-            {f"Complete ({len(results)}/{args.variations})" if len(results) == args.variations else f"Generating... ({len(results)}/{args.variations})"}
+        <p><strong>Status:</strong> <span class="status {'complete' if len(results) == args.iterations else 'in-progress'}">
+            {f"Complete ({len(results)}/{args.iterations})" if len(results) == args.iterations else f"Generating... ({len(results)}/{args.iterations})"}
         </span></p>
     </div>
     
@@ -524,8 +561,8 @@ def generate_html(base_dir, run_dir, results, args):
                 base_cmd += " --metadata"
             
             # Generate the refine and iterate commands
-            refine_cmd = f"{base_cmd} --seed {result['seed']} --variations 1 --steps {result['steps']}"
-            iterate_cmd = f"{base_cmd} --seed {result['seed']} --iterate 1,3,5,9"
+            refine_cmd = f"{base_cmd} --seed {result['seed']} --iterations 1 --steps {result['steps']}"
+            iterate_cmd = f"{base_cmd} --seed {result['seed']} --vary-steps 1,3,5,9"
             
             f.write(f"""    <div class="image-card">
         <h3>Image {result["index"]} (Seed: {result["seed"]})</h3>
@@ -534,7 +571,7 @@ def generate_html(base_dir, run_dir, results, args):
         <div class="command">
             <strong>Exact Reproduction Command:</strong>
             <code>{refine_cmd}</code>
-            <strong>Iterate Steps Command:</strong>
+            <strong>Vary Steps Command:</strong>
             <code>{iterate_cmd}</code>
         </div>
     </div>
@@ -584,6 +621,7 @@ def update_main_index(base_dir):
             min-width: 250px;
             max-width: calc(33.333% - 10px);
             text-decoration: none;
+            position: relative;
         }
         .image-grid img { 
             width: 100%; 
@@ -592,8 +630,25 @@ def update_main_index(base_dir):
             cursor: pointer;
             transition: transform 0.2s;
         }
-        .image-grid img:hover {
+        .image-grid a:hover img {
             transform: scale(1.02);
+        }
+        .image-info {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            border-bottom-left-radius: 3px;
+            border-bottom-right-radius: 3px;
+        }
+        .image-grid a:hover .image-info {
+            opacity: 1;
         }
         .run-header { display: flex; justify-content: space-between; align-items: center; }
         h1 { color: #333; }
@@ -625,7 +680,7 @@ def update_main_index(base_dir):
                     with open(info_path, "r") as info_file:
                         info = json.load(info_file)
                         current_images = len(info.get('results', []))
-                        total_variations = info.get('variations', 0)
+                        total_iterations = info.get('iterations', 0)
                         
                         # Calculate total generation time if available
                         for result in info.get('results', []):
@@ -634,10 +689,10 @@ def update_main_index(base_dir):
                         
                         time_info = f"<p class='generation-time'>Total generation time: {total_time:.2f} seconds</p>" if total_time > 0 else ""
                         
-                        # Handle steps display for both normal and iteration mode
+                        # Handle steps display for both normal and vary-steps mode
                         steps_info = info.get('steps')
                         if isinstance(steps_info, list):
-                            steps_display = f"{','.join(map(str, steps_info))} (iterating)"
+                            steps_display = f"{','.join(map(str, steps_info))} (varying)"
                         else:
                             steps_display = str(steps_info)
                         
@@ -647,9 +702,10 @@ def update_main_index(base_dir):
                         {time_info}
                         """
                         
-                        is_complete = current_images == total_variations
+                        total_iterations = info.get('iterations', 0)
+                        is_complete = current_images == total_iterations
                         status_html = f"""<span class="status {'complete' if is_complete else 'in-progress'}">
-                            {f"Complete ({current_images}/{total_variations})" if is_complete else f"Generating... ({current_images}/{total_variations})"}
+                            {f"Complete ({current_images}/{total_iterations})" if is_complete else f"Generating... ({current_images}/{total_iterations})"}
                         </span>"""
                 except:
                     pass
@@ -661,7 +717,20 @@ def update_main_index(base_dir):
                 image_grid = '<div class="image-grid">'
                 for img in images:
                     img_path = os.path.join(run, img)
-                    image_grid += f'<a href="{run_path}"><img src="{img_path}" alt="{img}" loading="lazy"></a>'
+                    # Try to get image metadata from info
+                    img_info = ""
+                    if os.path.exists(info_path):
+                        try:
+                            with open(info_path, "r") as info_file:
+                                info_data = json.load(info_file)
+                                for result in info_data.get('results', []):
+                                    if os.path.basename(result.get('file_path', '')) == img:
+                                        img_info = f"Seed: {result.get('seed', 'N/A')} | Steps: {result.get('steps', 'N/A')}"
+                                        break
+                        except:
+                            img_info = ""
+                    
+                    image_grid += f'<a href="{run_path}"><img src="{img_path}" alt="{img}" loading="lazy"><div class="image-info">{img_info}</div></a>'
                 image_grid += '</div>'
             
             f.write(f"""        <div class="run-item">
@@ -689,7 +758,9 @@ def save_run_info(run_dir, args, results):
         "metadata": args.metadata,
         "style": args.style if hasattr(args, 'style') else None,
         "steps": args.steps if args.steps is not None else get_default_steps(args.model),
-        "iterate": args.iterate if hasattr(args, 'iterate') else None,
+        "vary_steps": args.vary_steps if hasattr(args, 'vary_steps') else None,
+        "vary_seed": args.vary_seed,
+        "seed": args.seed,
     }
     
     info = {
@@ -698,7 +769,7 @@ def save_run_info(run_dir, args, results):
         "model": args.model,
         "steps": args.steps if args.steps is not None else get_default_steps(args.model),
         "resolution": args.resolution,
-        "variations": args.variations,
+        "iterations": args.iterations,
         "command_args": command_args,  # Store all arguments for reproduction
         "results": [{
             "index": result["index"],
@@ -753,7 +824,7 @@ def main():
         
         # Final HTML update is already done in generate_images
         print(f"\nGeneration complete!")
-        print(f"Generated {len(results)} variations")
+        print(f"Generated {len(results)} iterations")
         print(f"Results saved to: {run_dir}")
         print(f"View results: {os.path.join(run_dir, 'index.html')}")
         
