@@ -169,6 +169,12 @@ Each session creates a directory with format `mflux_output_YYYYMMDD_HHMMSS` cont
 
 The tool automatically manages sessions, keeping related generations together and making it easy to track and reproduce results.
 
+## Future actions
+
+- [ ] Image to image
+- [ ] Lora models
+- [ ] Training your own model
+
 ## Installation
 
 Clone this repository and ensure the script has executable permissions:
