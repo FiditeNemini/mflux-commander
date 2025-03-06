@@ -75,6 +75,13 @@ def parse_args():
     style_group.add_argument("--style", type=str, metavar='STYLE_NAME',
                         help="Apply a saved style to the prompt")
     
+    # Brainstorm commands
+    brainstorm_group = parser.add_mutually_exclusive_group()
+    brainstorm_group.add_argument("--brainstorm", type=str, metavar='CONCEPT',
+                        help="Generate 5 prompt ideas for the given concept using Claude")
+    brainstorm_group.add_argument("--run-prompt", type=int, metavar='INDEX',
+                        help="Run a single prompt from the last brainstorm by index number")
+    
     # Arguments
     parser.add_argument("--prompt", type=str, help="The prompt to use for generation (if not specified, uses last prompt from current session)")
     parser.add_argument("--model", type=str, default="schnell", choices=["schnell", "dev"], 
@@ -125,11 +132,8 @@ def parse_args():
             style_desc = get_style(args.style)
             if not style_desc:
                 raise ValueError(f"Style '{args.style}' not found. Use --list-styles to see available styles.")
-            if args.prompt:
-                args.prompt = f"{args.prompt}, {style_desc}"
-            else:
-                # Will try to get last prompt later
-                args.style_desc = style_desc
+            # Store the style description for later use
+            args.style_desc = style_desc
     
     # Set resolution based on format flags
     if args.landscape:
@@ -158,9 +162,13 @@ def parse_args():
         if args.seed is None:
             raise ValueError("--vary-steps requires --seed to be specified")
         try:
-            args.vary_steps_list = [int(s.strip()) for s in args.vary_steps.split(",")]
+            # Handle both single value and comma-separated list
+            if ',' in args.vary_steps:
+                args.vary_steps_list = [int(s.strip()) for s in args.vary_steps.split(",")]
+            else:
+                args.vary_steps_list = [int(args.vary_steps.strip())]
         except ValueError:
-            raise ValueError("--vary-steps must be a comma-separated list of integers (e.g., '1,3,5,9')")
+            raise ValueError("--vary-steps must be a comma-separated list of integers or a single integer (e.g., '1,3,5,9' or '3')")
         args.iterations = len(args.vary_steps_list)  # Override iterations to match vary-steps list
         args.steps = None  # Clear any manually set steps
     
@@ -170,8 +178,23 @@ def parse_args():
         
     return args
 
-def get_last_settings(base_dir):
-    """Get the prompt, resolution, style, and variations from the most recent run in the directory."""
+def get_default_settings():
+    """Get default settings for a new run."""
+    return {
+        "prompt": None,
+        "model": "schnell",
+        "steps": 1,
+        "resolution": "1024x1024",
+        "iterations": 4,
+        "metadata": False,
+        "vary_seed": False,
+        "seed": None,
+        "style": None,
+        "vary_steps": None
+    }
+
+def load_last_settings(base_dir):
+    """Load settings from the most recent run in the directory."""
     runs = sorted([d for d in os.listdir(base_dir) if d.startswith("run_")], 
                  key=lambda x: int(x.split("_")[1]), reverse=True)
     
@@ -181,31 +204,90 @@ def get_last_settings(base_dir):
             try:
                 with open(info_path, "r") as f:
                     info = json.load(f)
-                    # Extract style from prompt if it exists
-                    prompt = info.get("prompt", "")
-                    style = None
-                    if "," in prompt:
-                        # Try to match the style with known styles
-                        styles = load_styles()
-                        base_prompt = prompt.split(",")[0].strip()
-                        style_part = prompt.split(",", 1)[1].strip()
-                        if style_part in styles.values():
-                            # Find the style name that matches this description
-                            for name, desc in styles.items():
-                                if desc == style_part:
-                                    style = name
-                                    prompt = base_prompt
-                                    break
-                    
-                    return {
-                        "prompt": prompt,
-                        "resolution": info.get("resolution"),
-                        "style": style,
-                        "iterations": info.get("iterations", 4)  # Default to 4 if not found
-                    }
+                    # Extract command args from the last run
+                    return info.get("command_args", get_default_settings())
             except:
                 continue
-    return None
+    return get_default_settings()
+
+def save_run_info(run_dir, settings, results):
+    """Save run information for future reference."""
+    info = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "command_args": settings,  # Store all settings in command_args
+        "results": [{
+            "index": result["index"],
+            "seed": result["seed"],
+            "steps": result["steps"],
+            "file_path": result["file_path"],
+            "metadata_path": result.get("metadata_path"),
+            "generation_time": result.get("generation_time", 0)
+        } for result in results]
+    }
+    
+    with open(os.path.join(run_dir, "run_info.json"), "w") as f:
+        json.dump(info, f, indent=2)
+
+class RunInfo:
+    """Class to handle all run info operations."""
+    def __init__(self, run_dir):
+        self.run_dir = run_dir
+        self.info_path = os.path.join(run_dir, "run_info.json")
+        self.info = self._load_info()
+    
+    def _load_info(self):
+        """Load run info from file or create new if doesn't exist."""
+        if os.path.exists(self.info_path):
+            try:
+                with open(self.info_path, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Warning: Could not load run info: {e}")
+                return self._create_empty_info()
+        return self._create_empty_info()
+    
+    def _create_empty_info(self):
+        """Create empty run info structure."""
+        return {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "command_args": get_default_settings(),
+            "results": []
+        }
+    
+    def save(self):
+        """Save current run info to file."""
+        with open(self.info_path, "w") as f:
+            json.dump(self.info, f, indent=2)
+    
+    def update_settings(self, settings):
+        """Update command args in run info."""
+        self.info["command_args"] = settings
+        self.save()
+    
+    def add_result(self, result):
+        """Add a new result to the run info."""
+        self.info["results"].append(result)
+        self.save()
+    
+    def get_settings(self):
+        """Get current settings from run info."""
+        return self.info.get("command_args", get_default_settings())
+    
+    def get_results(self):
+        """Get current results from run info."""
+        return self.info.get("results", [])
+    
+    def get_current_images(self):
+        """Get number of current images generated."""
+        return len(self.get_results())
+    
+    def get_total_iterations(self):
+        """Get total number of iterations from settings."""
+        return self.get_settings().get("iterations", 0)
+    
+    def is_complete(self):
+        """Check if run is complete."""
+        return self.get_current_images() == self.get_total_iterations()
 
 def create_output_directories(args):
     """Create the output directory structure."""
@@ -252,6 +334,26 @@ def create_output_directories(args):
                 if args.iterations == 4 and not hasattr(args, 'vary_steps_list'):
                     args.iterations = last_settings["iterations"]
                 
+                # Apply last model if not specified
+                if args.model == "schnell":  # Only apply if using default
+                    args.model = last_settings["model"]
+                
+                # Apply last steps if not specified
+                if args.steps is None and not hasattr(args, 'vary_steps_list'):
+                    args.steps = last_settings["steps"]
+                
+                # Apply last metadata setting if not specified
+                if not args.metadata:
+                    args.metadata = last_settings["metadata"]
+                
+                # Apply last vary_seed setting if not specified
+                if not args.vary_seed:
+                    args.vary_seed = last_settings["vary_seed"]
+                
+                # Apply last seed if not specified and not using vary_seed
+                if args.seed is None and not args.vary_seed:
+                    args.seed = last_settings["seed"]
+                
                 if args.prompt is None:
                     raise ValueError("No prompt specified and couldn't find last prompt in current session")
         else:
@@ -282,6 +384,26 @@ def create_output_directories(args):
                 # Apply last iterations if none specified and not using vary-steps
                 if args.iterations == 4 and not hasattr(args, 'vary_steps_list'):
                     args.iterations = last_settings["iterations"]
+                
+                # Apply last model if not specified
+                if args.model == "schnell":  # Only apply if using default
+                    args.model = last_settings["model"]
+                
+                # Apply last steps if not specified
+                if args.steps is None and not hasattr(args, 'vary_steps_list'):
+                    args.steps = last_settings["steps"]
+                
+                # Apply last metadata setting if not specified
+                if not args.metadata:
+                    args.metadata = last_settings["metadata"]
+                
+                # Apply last vary_seed setting if not specified
+                if not args.vary_seed:
+                    args.vary_seed = last_settings["vary_seed"]
+                
+                # Apply last seed if not specified and not using vary_seed
+                if args.seed is None and not args.vary_seed:
+                    args.seed = last_settings["seed"]
             else:
                 raise ValueError("No prompt specified and couldn't find last prompt in output directory")
     
@@ -302,11 +424,6 @@ def create_output_directories(args):
     # Create initial run_info.json with empty results
     initial_info = {
         "timestamp": datetime.datetime.now().isoformat(),
-        "prompt": args.prompt,
-        "model": args.model,
-        "steps": args.vary_steps if hasattr(args, 'vary_steps_list') else (args.steps if args.steps is not None else get_default_steps(args.model)),
-        "resolution": args.resolution,
-        "iterations": args.iterations,
         "command_args": {
             "prompt": args.prompt,
             "model": args.model,
@@ -317,6 +434,7 @@ def create_output_directories(args):
             "vary_steps": args.vary_steps if hasattr(args, 'vary_steps') else None,
             "vary_seed": args.vary_seed,
             "seed": args.seed,
+            "iterations": args.iterations
         },
         "results": []
     }
@@ -325,7 +443,7 @@ def create_output_directories(args):
         json.dump(initial_info, f, indent=2)
     
     # Generate initial HTML files
-    generate_html(base_dir, run_dir, [], args)
+    generate_html(base_dir, run_dir, [], initial_info["command_args"])
     update_main_index(base_dir)
     
     return base_dir, run_dir
@@ -339,38 +457,48 @@ def get_default_steps(model):
     else:
         return 1  # Fallback
 
-def generate_images(args, run_dir):
+def generate_images(settings, run_dir):
     """Run mflux-generate command and return results."""
     results = []
+    run_info = RunInfo(run_dir)
     
     # Use provided steps or default based on model
-    steps = args.steps if args.steps is not None else get_default_steps(args.model)
+    steps = settings["steps"]
     
     # Parse resolution
-    width, height = map(int, args.resolution.split('x'))
+    width, height = map(int, settings["resolution"].split('x'))
+    
+    # Get the base prompt and style
+    base_prompt = settings["prompt"]
+    if settings.get("style"):
+        style_desc = get_style(settings["style"])
+        if style_desc:
+            base_prompt = f"{base_prompt}, {style_desc}"
     
     # Generate each iteration
-    for i in range(args.iterations):
+    for i in range(settings["iterations"]):
         # Generate a random seed if not provided or if vary-seed is specified
-        if args.seed is not None and not args.vary_seed:
+        if settings["seed"] is not None and not settings["vary_seed"]:
             # When using --vary-steps, use the same seed for all iterations
-            seed = args.seed
+            seed = settings["seed"]
         else:
             seed = random.randint(1, 1000000)
         
         # If using vary-steps, use the corresponding step count
-        if hasattr(args, 'vary_steps_list'):
-            current_steps = args.vary_steps_list[i]
+        if settings["vary_steps"]:
+            current_steps = settings["vary_steps_list"][i]
         else:
             current_steps = steps
         
-        output_path = os.path.join(run_dir, f"image_{i+1}.png")
+        # Use the correct filename format with both indices
+        output_path = os.path.join(run_dir, f"image_{seed}_{steps}.png")
+        metadata_path = output_path + ".json" if settings["metadata"] else None
         
         # Build the mflux-generate command
         cmd = [
             "mflux-generate",
-            "--prompt", args.prompt,
-            "--model", args.model,
+            "--prompt", base_prompt,  # Use the prompt with style if applicable
+            "--model", settings["model"],
             "--steps", str(current_steps),
             "--seed", str(seed),
             "--width", str(width),
@@ -378,12 +506,12 @@ def generate_images(args, run_dir):
             "--output", output_path
         ]
         
-        if args.metadata:
+        if settings["metadata"]:
             cmd.extend(["--metadata"])
         
         # Execute the command
         try:
-            print(f"\nGenerating iteration {i+1}/{args.iterations} with seed {seed} and steps {current_steps}...")
+            print(f"\nGenerating iteration {i+1}/{settings['iterations']} with seed {seed} and steps {current_steps}...")
             start_time = datetime.datetime.now()
             
             # Use Popen to capture output in real-time
@@ -416,21 +544,21 @@ def generate_images(args, run_dir):
             end_time = datetime.datetime.now()
             generation_time = (end_time - start_time).total_seconds()
             
-            # Store the result
+            # Store the result with the correct filename format
             image_info = {
                 "index": i+1,
                 "seed": seed,
                 "steps": current_steps,
-                "file_path": output_path,
-                "metadata_path": output_path + ".json" if args.metadata else None,
+                "file_path": f"image_{seed}_{steps}.png",  # Use consistent filename format
+                "metadata_path": metadata_path,
                 "command": " ".join(cmd),
                 "generation_time": generation_time
             }
             results.append(image_info)
             
-            # Update HTML files after each successful generation
-            save_run_info(run_dir, args, results)  # Save current progress
-            generate_html(os.path.dirname(run_dir), run_dir, results, args)
+            # Update run info and HTML files after each successful generation
+            run_info.add_result(image_info)
+            generate_html(os.path.dirname(run_dir), run_dir, run_info.get_results(), run_info.get_settings())
             
             print(f"  ✓ Generated in {generation_time:.2f} seconds")
             
@@ -440,21 +568,21 @@ def generate_images(args, run_dir):
     
     return results
 
-def generate_html(base_dir, run_dir, results, args):
+def generate_html(base_dir, run_dir, results, settings):
     """Generate HTML pages for viewing the results."""
     # Create HTML for this run
     run_html_path = os.path.join(run_dir, "index.html")
     
     # Get the original prompt without style if possible
-    base_prompt = args.prompt
-    if hasattr(args, 'style') and args.style and "," in args.prompt:
-        base_prompt = args.prompt.split(",")[0].strip()
+    base_prompt = settings["prompt"]
+    if settings["prompt"] and settings.get("style") and "," in settings["prompt"]:
+        base_prompt = settings["prompt"].split(",")[0].strip()
     
     # Format steps info
-    if hasattr(args, 'vary_steps_list'):
-        steps_info = f"Steps: {args.vary_steps} (varying)"
+    if settings.get("vary_steps"):
+        steps_info = f"Steps: {settings['vary_steps']} (varying)"
     else:
-        steps = args.steps if args.steps is not None else get_default_steps(args.model)
+        steps = settings.get("steps", get_default_steps(settings["model"]))
         steps_info = f"Steps: {steps}"
     
     with open(run_html_path, "w") as f:
@@ -505,13 +633,13 @@ def generate_html(base_dir, run_dir, results, args):
     <h1>MFlux Generation Results</h1>
     <div class="run-info">
         <h2>Run Information</h2>
-        <p><strong>Prompt:</strong> {args.prompt}</p>
-        <p><strong>Model:</strong> {args.model}</p>
-        <p><strong>Resolution:</strong> {args.resolution}</p>
+        <p><strong>Prompt:</strong> {settings["prompt"]}</p>
+        <p><strong>Model:</strong> {settings["model"]}</p>
+        <p><strong>Resolution:</strong> {settings["resolution"]}</p>
         <p><strong>{steps_info}</strong></p>
         <p><strong>Date:</strong> {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
-        <p><strong>Status:</strong> <span class="status {'complete' if len(results) == args.iterations else 'in-progress'}">
-            {f"Complete ({len(results)}/{args.iterations})" if len(results) == args.iterations else f"Generating... ({len(results)}/{args.iterations})"}
+        <p><strong>Status:</strong> <span class="status {'complete' if len(results) == settings['iterations'] else 'in-progress'}">
+            {f"Complete ({len(results)}/{settings['iterations']})" if len(results) == settings['iterations'] else f"Generating... ({len(results)}/{settings['iterations']})"}
         </span></p>
     </div>
     
@@ -521,13 +649,20 @@ def generate_html(base_dir, run_dir, results, args):
         
         # Add each image
         for result in results:
-            image_filename = os.path.basename(result["file_path"])
+            # Get the image filename from the result's file_path
+            file_path = result["file_path"]
+            if os.path.isabs(file_path):
+                image_filename = os.path.basename(file_path)
+            else:
+                image_filename = file_path
+                
             metadata_html = ""
             
             # Add metadata if available
-            if result["metadata_path"] and os.path.exists(result["metadata_path"]):
+            metadata_path = result.get("metadata_path")
+            if metadata_path and os.path.exists(metadata_path):
                 try:
-                    with open(result["metadata_path"], "r") as meta_file:
+                    with open(metadata_path, "r") as meta_file:
                         metadata = json.load(meta_file)
                         # Format a simplified version of metadata
                         metadata_html = f"""<div class="metadata">
@@ -546,18 +681,14 @@ def generate_html(base_dir, run_dir, results, args):
             
             # Generate commands for reusing this seed
             # Build the base command with all necessary flags
-            base_cmd = f"./mflux-wrapper.py --prompt \"{base_prompt}\" --model {args.model} --resolution {args.resolution}"
+            base_cmd = f"./mflux-wrapper.py --prompt \"{base_prompt}\" --model {settings['model']} --resolution {settings['resolution']}"
             
             # Add style if it was used
-            if hasattr(args, 'style') and args.style:
-                base_cmd += f" --style {args.style}"
-            elif hasattr(args, 'style_desc'):
-                # If we have a style description but no name, it was from a previous run
-                # Include it in the prompt instead
-                base_cmd = f"./mflux-wrapper.py --prompt \"{args.prompt}\" --model {args.model} --resolution {args.resolution}"
+            if settings.get("style"):
+                base_cmd += f" --style {settings['style']}"
             
             # Add metadata flag if it was used
-            if args.metadata:
+            if settings.get("metadata"):
                 base_cmd += " --metadata"
             
             # Generate the refine and iterate commands
@@ -658,6 +789,28 @@ def update_main_index(base_dir):
         .in-progress { background: #fff3cd; color: #856404; }
         .complete { background: #d4edda; color: #155724; }
         .generation-time { color: #666; font-size: 0.9em; }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            transition: width 0.3s ease;
+        }
+        .run-details {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .run-details p {
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
@@ -670,45 +823,51 @@ def update_main_index(base_dir):
             run_dir = os.path.join(base_dir, run)
             run_path = os.path.join(run, "index.html")
             
-            # Try to extract run info and status
-            run_info = ""
-            status_html = ""
-            total_time = 0
-            info_path = os.path.join(run_dir, "run_info.json")
-            if os.path.exists(info_path):
-                try:
-                    with open(info_path, "r") as info_file:
-                        info = json.load(info_file)
-                        current_images = len(info.get('results', []))
-                        total_iterations = info.get('iterations', 0)
-                        
-                        # Calculate total generation time if available
-                        for result in info.get('results', []):
-                            if 'generation_time' in result:
-                                total_time += result['generation_time']
-                        
-                        time_info = f"<p class='generation-time'>Total generation time: {total_time:.2f} seconds</p>" if total_time > 0 else ""
-                        
-                        # Handle steps display for both normal and vary-steps mode
-                        steps_info = info.get('steps')
-                        if isinstance(steps_info, list):
-                            steps_display = f"{','.join(map(str, steps_info))} (varying)"
-                        else:
-                            steps_display = str(steps_info)
-                        
-                        run_info = f"""
-                        <p><strong>Prompt:</strong> "{info['prompt']}"</p>
-                        <p><strong>Model:</strong> {info['model']}, <strong>Steps:</strong> {steps_display}</p>
-                        {time_info}
-                        """
-                        
-                        total_iterations = info.get('iterations', 0)
-                        is_complete = current_images == total_iterations
-                        status_html = f"""<span class="status {'complete' if is_complete else 'in-progress'}">
-                            {f"Complete ({current_images}/{total_iterations})" if is_complete else f"Generating... ({current_images}/{total_iterations})"}
-                        </span>"""
-                except:
-                    pass
+            # Initialize run info
+            run_info = RunInfo(run_dir)
+            settings = run_info.get_settings()
+            results = run_info.get_results()
+            
+            # Calculate total generation time
+            total_time = sum(result.get("generation_time", 0) for result in results)
+            time_info = f"<p class='generation-time'>Total generation time: {total_time:.2f} seconds</p>" if total_time > 0 else ""
+            
+            # Format steps info
+            if settings.get('vary_steps'):
+                steps_display = f"{settings['vary_steps']} (varying)"
+            else:
+                steps = settings.get('steps', get_default_steps(settings.get('model', 'schnell')))
+                steps_display = str(steps)
+            
+            # Calculate progress
+            current_images = run_info.get_current_images()
+            total_iterations = run_info.get_total_iterations()
+            progress = (current_images / total_iterations * 100) if total_iterations > 0 else 0
+            
+            # Create progress bar
+            progress_bar = f"""
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: {progress}%"></div>
+            </div>
+            <p>Progress: {current_images}/{total_iterations} ({progress:.1f}%)</p>
+            """
+            
+            # Create detailed run info
+            run_details = f"""
+            <div class="run-details">
+                <p><strong>Prompt:</strong> "{settings.get('prompt', 'N/A')}"</p>
+                <p><strong>Steps:</strong> {steps_display}</p>
+                {f'<p><strong>Style:</strong> {settings.get("style", "N/A")}</p>' if settings.get("style") else ""}
+                {time_info}
+                {progress_bar}
+            </div>
+            """
+            
+            # Create status HTML
+            is_complete = run_info.is_complete()
+            status_html = f"""<span class="status {'complete' if is_complete else 'in-progress'}">
+                {f"Complete ({current_images}/{total_iterations})" if is_complete else f"Generating... ({current_images}/{total_iterations})"}
+            </span>"""
             
             # Get all PNG images in the run directory
             images = sorted([f for f in os.listdir(run_dir) if f.endswith('.png')])
@@ -717,18 +876,12 @@ def update_main_index(base_dir):
                 image_grid = '<div class="image-grid">'
                 for img in images:
                     img_path = os.path.join(run, img)
-                    # Try to get image metadata from info
+                    # Try to get image metadata from results
                     img_info = ""
-                    if os.path.exists(info_path):
-                        try:
-                            with open(info_path, "r") as info_file:
-                                info_data = json.load(info_file)
-                                for result in info_data.get('results', []):
-                                    if os.path.basename(result.get('file_path', '')) == img:
-                                        img_info = f"Seed: {result.get('seed', 'N/A')} | Steps: {result.get('steps', 'N/A')}"
-                                        break
-                        except:
-                            img_info = ""
+                    for result in results:
+                        if os.path.basename(result.get('file_path', '')) == img:
+                            img_info = f"Seed: {result.get('seed', 'N/A')} | Steps: {result.get('steps', 'N/A')}"
+                            break
                     
                     image_grid += f'<a href="{run_path}"><img src="{img_path}" alt="{img}" loading="lazy"><div class="image-info">{img_info}</div></a>'
                 image_grid += '</div>'
@@ -738,7 +891,7 @@ def update_main_index(base_dir):
                 <h2>Run {run_index}{status_html}</h2>
                 <span class="timestamp">{datetime.datetime.fromtimestamp(os.path.getctime(run_dir)).strftime('%Y-%m-%d %H:%M:%S')}</span>
             </div>
-            {run_info}
+            {run_details}
             <a href="{run_path}">View Details</a>
             {image_grid}
         </div>
@@ -747,41 +900,6 @@ def update_main_index(base_dir):
         f.write("""    </div>
 </body>
 </html>""")
-
-def save_run_info(run_dir, args, results):
-    """Save run information for future reference."""
-    # Collect all relevant arguments
-    command_args = {
-        "prompt": args.prompt,
-        "model": args.model,
-        "resolution": args.resolution,
-        "metadata": args.metadata,
-        "style": args.style if hasattr(args, 'style') else None,
-        "steps": args.steps if args.steps is not None else get_default_steps(args.model),
-        "vary_steps": args.vary_steps if hasattr(args, 'vary_steps') else None,
-        "vary_seed": args.vary_seed,
-        "seed": args.seed,
-    }
-    
-    info = {
-        "timestamp": datetime.datetime.now().isoformat(),
-        "prompt": args.prompt,
-        "model": args.model,
-        "steps": args.steps if args.steps is not None else get_default_steps(args.model),
-        "resolution": args.resolution,
-        "iterations": args.iterations,
-        "command_args": command_args,  # Store all arguments for reproduction
-        "results": [{
-            "index": result["index"],
-            "seed": result["seed"],
-            "steps": result["steps"],
-            "file_path": os.path.basename(result["file_path"]),
-            "generation_time": result.get("generation_time", 0)
-        } for result in results]
-    }
-    
-    with open(os.path.join(run_dir, "run_info.json"), "w") as f:
-        json.dump(info, f, indent=2)
 
 def check_live_server():
     """Check if live-server is available."""
@@ -795,12 +913,262 @@ def check_live_server():
     except (subprocess.SubprocessError, FileNotFoundError):
         return False
 
+def save_brainstorm_results(concept, prompts, base_dir):
+    """Save brainstorm results to a file in the session directory."""
+    results_file = os.path.join(base_dir, "brainstorm_results.json")
+    try:
+        # Load existing results
+        if os.path.exists(results_file):
+            with open(results_file, 'r') as f:
+                results = json.load(f)
+        else:
+            results = {}
+        
+        # Add new results
+        results[concept] = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "prompts": prompts
+        }
+        
+        # Save updated results
+        with open(results_file, 'w') as f:
+            json.dump(results, f, indent=2)
+            
+        print(f"\nBrainstorm results saved to {results_file}")
+        return True
+    except Exception as e:
+        print(f"Error saving brainstorm results: {e}")
+        return False
+
+def load_brainstorm_results(base_dir):
+    """Load the most recent brainstorm results from the session directory."""
+    results_file = os.path.join(base_dir, "brainstorm_results.json")
+    if not os.path.exists(results_file):
+        print("No brainstorm results found.")
+        return None
+        
+    try:
+        with open(results_file, 'r') as f:
+            results = json.load(f)
+            if not results:
+                print("No brainstorm results found.")
+                return None
+                
+            # Get the most recent concept
+            latest_concept = max(results.items(), key=lambda x: x[1]["timestamp"])[0]
+            return {
+                "concept": latest_concept,
+                "prompts": results[latest_concept]["prompts"]
+            }
+    except Exception as e:
+        print(f"Error loading brainstorm results: {e}")
+        return None
+
+def get_or_create_session(args):
+    """Get the current session directory or create a new one if needed."""
+    now = datetime.datetime.now()
+    session_dirs = []
+    
+    # Find all session directories
+    for d in os.listdir('.'):
+        if d.startswith('mflux_output_'):
+            try:
+                dir_time = datetime.datetime.strptime(d.split('_', 2)[2], "%Y%m%d_%H%M%S")
+                session_dirs.append((dir_time, d))
+            except ValueError:
+                continue
+    
+    if not session_dirs or args.new:
+        # Create new session directory
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        base_dir = f"mflux_output_{timestamp}"
+        os.makedirs(base_dir, exist_ok=True)
+        return base_dir
+    
+    # Get most recent session
+    latest_session = sorted(session_dirs, reverse=True)[0]
+    latest_time, latest_dir = latest_session
+    
+    # Check if session is still valid (less than 4 hours old)
+    if (now - latest_time).total_seconds() < 14400:  # 4 hours in seconds
+        return latest_dir
+    else:
+        # Create new session directory
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        base_dir = f"mflux_output_{timestamp}"
+        os.makedirs(base_dir, exist_ok=True)
+        return base_dir
+
+def brainstorm_prompts(concept, args):
+    """Generate prompt ideas using Claude via llm command."""
+    # Check if llm command is available
+    try:
+        subprocess.run(['llm', '--version'], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("Error: 'llm' command not found. Please install it first:")
+        print("  pip install llm")
+        return
+
+    # Create a new session directory for the brainstorm
+    base_dir = get_or_create_session(args)
+    
+    # Generate prompts using Claude
+    prompt = f"give me 5 variations of this idea, that describes a close up image representing {concept}. these ideas will be fed into an image prompt."
+    try:
+        result = subprocess.run(
+            ['llm', '-m', 'claude-3.7-sonnet', prompt],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        # Split into lines and clean up
+        raw_lines = result.stdout.strip().split('\n')
+        prompts = []
+        
+        # Process each line
+        for line in raw_lines:
+            line = line.strip()
+            if not line:  # Skip empty lines
+                continue
+            # Skip lines that don't start with a number followed by a dot
+            if not (line[0].isdigit() and '. ' in line):
+                continue
+            # Remove the number and dot, then clean up
+            prompt = line.split('. ', 1)[1].strip()
+            prompts.append(prompt)
+        
+        # Ensure we have exactly 5 prompts
+        if len(prompts) > 5:
+            prompts = prompts[:5]
+        elif len(prompts) < 5:
+            print(f"Warning: Only got {len(prompts)} prompts from Claude")
+        
+        # Save prompts to a file
+        prompts_file = os.path.join(base_dir, "prompt-ideas.txt")
+        with open(prompts_file, 'w') as f:
+            for i, prompt in enumerate(prompts, 1):
+                f.write(f"{i}. {prompt}\n")
+        
+        # Save prompts to brainstorm_results.json
+        save_brainstorm_results(concept, prompts, base_dir)
+        
+        # Print prompts to console
+        print(f"\nGenerated prompts for concept: {concept}")
+        print("\nPrompts:")
+        for i, prompt in enumerate(prompts, 1):
+            print(f"{i}. {prompt}\n")
+        
+        print(f"\nPrompts saved to: {prompts_file}")
+        print("\nTo run specific prompts, use:")
+        print(f"  ./mflux-wrapper.py --run-prompt INDEX")
+        print("Example: --run-prompt 2")
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Error running llm command: {e}")
+        print("Make sure you have the llm command installed and configured with Claude API access")
+    except Exception as e:
+        print(f"Error generating prompts: {e}")
+
 def main():
     """Main function to execute the tool."""
     args = parse_args()
     
-    # Create directory structure
-    base_dir, run_dir = create_output_directories(args)
+    # Handle brainstorm commands
+    if args.brainstorm:
+        brainstorm_prompts(args.brainstorm, args)
+        return
+    
+    # Get or create session directory first
+    base_dir = get_or_create_session(args)
+    
+    # Load settings from last run
+    settings = load_last_settings(base_dir)
+    
+    # Handle run-prompt command
+    if args.run_prompt:
+        # Load the most recent brainstorm results
+        brainstorm_data = load_brainstorm_results(base_dir)
+        if not brainstorm_data:
+            print("Error: No brainstorm results found. Please run --brainstorm first.")
+            return
+            
+        prompts = brainstorm_data["prompts"]
+        if not prompts:
+            print("Error: No prompts found in brainstorm results.")
+            return
+            
+        # Validate the prompt index
+        if args.run_prompt < 1 or args.run_prompt > len(prompts):
+            print(f"Error: Invalid prompt index. Please choose between 1 and {len(prompts)}.")
+            return
+            
+        # Get the selected prompt
+        selected_prompt = prompts[args.run_prompt - 1]
+        print(f"\nRunning prompt {args.run_prompt}:")
+        print(f"Prompt: {selected_prompt}")
+        
+        # Set the prompt in settings
+        settings["prompt"] = selected_prompt
+    
+    # Apply command line arguments to settings
+    if args.prompt is not None:
+        settings["prompt"] = args.prompt
+        if hasattr(args, 'style_desc'):
+            settings["prompt"] = f"{settings['prompt']}, {args.style_desc}"
+    
+    if args.model != "schnell":  # Only update if not using default
+        settings["model"] = args.model
+    
+    if args.steps is not None:
+        settings["steps"] = args.steps
+    
+    if args.resolution != "1024x1024":
+        settings["resolution"] = args.resolution
+    
+    if args.iterations != 4:
+        settings["iterations"] = args.iterations
+    
+    if args.metadata:
+        settings["metadata"] = True
+    
+    if args.vary_seed:
+        settings["vary_seed"] = True
+    
+    if args.seed is not None:
+        settings["seed"] = args.seed
+    
+    if hasattr(args, 'style'):
+        settings["style"] = args.style
+    
+    if hasattr(args, 'vary_steps_list'):
+        settings["vary_steps"] = args.vary_steps
+        settings["vary_steps_list"] = args.vary_steps_list
+        settings["iterations"] = len(args.vary_steps_list)  # Override iterations to match vary-steps list
+        settings["steps"] = None  # Clear any manually set steps
+    
+    # Validate required settings
+    if settings["prompt"] is None:
+        raise ValueError("No prompt specified and couldn't find last prompt in current session")
+    
+    # Create run directory
+    existing_runs = [d for d in os.listdir(base_dir) if d.startswith("run_")]
+    if existing_runs:
+        run_numbers = [int(run.split("_")[1]) for run in existing_runs]
+        next_run = max(run_numbers) + 1
+    else:
+        next_run = 1
+    
+    run_dir = os.path.join(base_dir, f"run_{next_run}")
+    os.makedirs(run_dir, exist_ok=True)
+    
+    # Initialize run info
+    run_info = RunInfo(run_dir)
+    run_info.update_settings(settings)
+    
+    # Generate initial HTML files with the settings
+    generate_html(base_dir, run_dir, [], settings)
+    update_main_index(base_dir)
+    
     print(f"Created run directory: {run_dir}")
     
     # Start live-server if watching is enabled and available
@@ -820,7 +1188,7 @@ def main():
     
     try:
         # Generate images
-        results = generate_images(args, run_dir)
+        results = generate_images(settings, run_dir)
         
         # Final HTML update is already done in generate_images
         print(f"\nGeneration complete!")
@@ -830,9 +1198,24 @@ def main():
         
         if live_server_process:
             print("\nStopping live-server...")
-            live_server_process.terminate()
-            live_server_process.wait()
-            print("Live-server stopped.")
+            try:
+                # First try graceful termination
+                live_server_process.terminate()
+                try:
+                    # Wait for up to 5 seconds for graceful termination
+                    live_server_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # If still running after 5 seconds, force kill
+                    print("Live-server not responding to terminate, forcing kill...")
+                    live_server_process.kill()
+                    try:
+                        # Wait for up to 2 more seconds for kill to take effect
+                        live_server_process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        print("Warning: Could not confirm live-server termination")
+                print("Live-server stopped.")
+            except Exception as e:
+                print(f"Warning: Error stopping live-server: {e}")
         elif not args.no_watch:
             print("\nTo monitor changes in real-time, install and run:")
             print("  npm install -g live-server")
@@ -842,9 +1225,24 @@ def main():
         print("\nGeneration interrupted!")
         if live_server_process:
             print("Stopping live-server...")
-            live_server_process.terminate()
-            live_server_process.wait()
-            print("Live-server stopped.")
+            try:
+                # First try graceful termination
+                live_server_process.terminate()
+                try:
+                    # Wait for up to 5 seconds for graceful termination
+                    live_server_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # If still running after 5 seconds, force kill
+                    print("Live-server not responding to terminate, forcing kill...")
+                    live_server_process.kill()
+                    try:
+                        # Wait for up to 2 more seconds for kill to take effect
+                        live_server_process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        print("Warning: Could not confirm live-server termination")
+                print("Live-server stopped.")
+            except Exception as e:
+                print(f"Warning: Error stopping live-server: {e}")
         raise
 
 if __name__ == "__main__":

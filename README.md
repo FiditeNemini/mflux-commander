@@ -26,6 +26,29 @@ And if you like what you see, you can see interations of a specific seed variant
 
 ![](./docs/screenshots/magic_forest_iterations.webp)
 
+```
+./mflux-wrapper.py --brainstorm "homegrown software"
+```
+
+Which returns
+
+```
+Generated Prompts:
+----------------------------------------
+1. A seedling sprouting from lines of code, with soil made of circuit board patterns, captured in macro photography with morning dew on the tender green leaves representing fresh, organic software development.
+2. Weathered hands typing on a keyboard where the keys are tiny garden plots, each growing miniature digital elements like pixels and icons among the soil, with warm sunlight filtering across the workspace.
+3. A close-up of intertwined roots and ethernet cables beneath a small flowering plant, where binary code is visible as texture on the roots, creating a seamless blend between technology and organic growth.
+4. A terrarium-like environment inside a transparent computer case, where tiny plants grow among microchips and memory modules, with thin fiber-optic filaments glowing softly like irrigation lines.
+5. A macro shot of a wooden desk workspace where handwritten code notes on paper are transforming into digital elements, with coffee stains merging into circuit patterns and a small potted plant casting pixel-shaped shadows.
+----------------------------------------
+```
+
+And then you can try them out with out copy and paste.
+
+```
+./mflux-wrapper.py --run-prompt 2
+```
+
 ## Overview
 
 MFlux Commander is a CLI tool for working directly with image generation models, designed for both local development and direct model exploration. Unlike polished products like Midjourney, it provides raw access to the underlying model capabilities, making it invaluable for understanding model behavior and prototyping new features.
@@ -122,6 +145,26 @@ Try different aspect ratios and sizes:
 - `--steps N` - Number of steps (defaults: 1 for schnell, 5 for dev)
 - `--metadata` - Include generation metadata in output
 
+### Brainstorming Features
+
+Generate and explore multiple prompt variations using Claude:
+
+```bash
+# Generate 5 prompt variations for a concept
+./mflux-wrapper.py --brainstorm "home grown software"
+
+# Run specific prompts from the last brainstorm
+./mflux-wrapper.py --run-prompts "2,4,5"
+```
+
+The brainstorm feature:
+
+- Uses Claude to generate 5 creative prompt variations
+- Saves results in the current session directory
+- Allows running specific prompts by their index numbers
+- Creates separate run directories for each selected prompt
+- Maintains all results in the same session for easy comparison
+
 ### Resolution Options
 
 Standard Formats:
@@ -159,19 +202,22 @@ Extra Large Formats:
 - `--vary-steps N,N,N` - Comma-separated list of step counts to iterate through (requires --seed)
 - `--output-dir DIR` - Custom output directory
 - `--metadata` - Include metadata in output
+- `--brainstorm CONCEPT` - Generate 5 prompt variations for a concept
+- `--run-prompt INDEX` - Run specific prompts from last brainstorm (e.g., "2")
 
 ## Output Structure
 
 Each session creates a directory with format `mflux_output_YYYYMMDD_HHMMSS` containing:
 
 - `index.html` - Main gallery of all runs
+- `brainstorm_results.json` - Results from brainstorm sessions
 - `run_N/` - Directories for each generation run
   - `index.html` - Detailed view of the run
   - `image_N.png` - Generated images
   - `image_N.png.json` - Metadata (if enabled)
   - `run_info.json` - Run configuration and results
 
-The tool automatically manages sessions, keeping related generations together and making it easy to track and reproduce results.
+The tool automatically manages sessions, keeping related generations together and making it easy to track and reproduce results. Sessions are maintained for 4 hours before creating a new one, or you can force a new session with the `--new` flag.
 
 ## Future actions
 

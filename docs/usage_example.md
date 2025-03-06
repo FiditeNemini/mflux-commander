@@ -1,15 +1,7 @@
-llm -m claude-3.7-sonnet "what are some good visual metaphors for DIY, punk, and in general do it yourself, specifically around making personal things and things around the home. We'll use this as image prompts"
+mflux-wrapper.py --brainstorm "magical forest" --new
 
-llm -c "more variations of Messy, authentic workspaces mid-project"
+mflux-wrapper.py --run-prompt 3 --landscape
 
-#!/usr/bin/env -S uv run -p 3.12 --script
+mflux-wrapper.py --vary-steps 2,3,4 --seed 362394
 
-# /// script
-
-# dependencies = [
-
-# "mflux",
-
-# ]
-
-# ///
+mflux-wrapper.py --style charcoal
