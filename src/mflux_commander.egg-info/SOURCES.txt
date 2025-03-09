@@ -1,9 +1,7 @@
 .gitignore
 README.md
-mflux-wrapper.py
 pyproject.toml
 setup.py
-test_mflux_wrapper.py
 docs/1_idea_to_spec.md
 docs/2_voice_chat.md
 docs/3_spec.md

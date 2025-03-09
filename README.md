@@ -14,18 +14,30 @@ pip install mflux-commander
 # Generate an image with default settings
 mflux-commander generate --prompt "a magical forest"
 
-# Generate multiple variations
-mflux-commander generate --prompt "a magical forest" --iterations 3
+# Generate multiple variations with different seeds
+mflux-commander generate --prompt "a magical forest" --vary-seed 3
 
 # Apply a style
 mflux-commander generate --prompt "a magical forest" --style ghibli
 
-# Explore variations of a specific seed
+# Generate variations with different step counts
 mflux-commander generate --prompt "a magical forest" --seed 185769 --vary-steps 1,3,5,9
 
 # Get creative prompt suggestions
 mflux-commander brainstorm "homegrown software"
 ```
+
+A prompt with random seeds will look like this:
+
+![magical forest screenshot](docs/screenshots/magic_forest.webp)
+
+You can apply a pre-determined style like `--style ghibli`
+
+![magic forest ghibli](docs/screenshots/magic_forest_ghibli.webp)
+
+And you can run iterations over the number of steps to flesh out the image more:
+
+![magic forest iterations](docs/screenshots/magic_forest_iterations.webp)
 
 ## Overview
 
@@ -36,10 +48,11 @@ Key features include:
 - Control over inference steps (1-step previews to 9-step detailed renders)
 - Session management and live preview
 - Detailed logging for automation and experimentation
-- Multiple iterations with random or fixed seeds
+- Seed variations for exploring different outputs
+- Step variations for understanding model behavior
 - Style management and reuse
 - Interactive HTML galleries
-- Seed and step variation modes
+- Prompt brainstorming with AI assistance
 
 ## Command Reference
 
@@ -49,10 +62,10 @@ Key features include:
 # Basic image generation
 mflux-commander generate --prompt "your prompt"
 
-# Multiple iterations
-mflux-commander generate --prompt "your prompt" --iterations 4
+# Generate multiple variations with different seeds
+mflux-commander generate --prompt "your prompt" --vary-seed 4
 
-# Specific seed
+# Use a specific seed
 mflux-commander generate --prompt "your prompt" --seed 12345
 
 # Different model
@@ -61,29 +74,16 @@ mflux-commander generate --prompt "your prompt" --model dev
 
 ### Resolution Options
 
-Standard Formats:
+Available formats:
 
-- `--resolution WxH` - Custom resolution (default: 1024x1024)
-- `--landscape` - 16:9 format (1024x576)
-- `--portrait` - 3:4 format (768x1024)
+- `--format landscape` - 16:9 format (1024x576)
+- `--format portrait` - 3:4 format (768x1024)
+- `--format landscape_sm` - Small 16:9 (512x288)
+- `--format portrait_sm` - Small 3:4 (384x512)
+- `--format landscape_lg` - Large 16:9 (1536x864)
+- `--format portrait_lg` - Large 3:4 (1152x1536)
 
-Small Formats:
-
-- `--landscape-sm` - Small 16:9 (512x288)
-- `--portrait-sm` - Small 3:4 (384x512)
-- `--square-sm` - Small square (512x512)
-
-Large Formats:
-
-- `--landscape-lg` - Large 16:9 (1536x864)
-- `--portrait-lg` - Large 3:4 (1152x1536)
-- `--square-lg` - Large square (1536x1536)
-
-Extra Large Formats:
-
-- `--landscape-xl` - XL 16:9 (2048x1152)
-- `--portrait-xl` - XL 3:4 (1536x2048)
-- `--square-xl` - XL square (2048x2048)
+Default is square 1024x1024.
 
 ### Style Management
 
@@ -96,20 +96,30 @@ mflux-commander list-styles
 
 # Use a style
 mflux-commander generate --prompt "city street" --style cyberpunk
+```
 
-# Remove style
-mflux-commander generate --prompt "city street" --style none
+You'll need to come up with your own. Here are a few of mine:
+
+```
+Available Styles:
+----------------------------------------
+blueprint: structural drawings, line drawings, white background, minimalist, construction drawings
+charcoal: as a charcoal drawing
+cyberpunk: neon-lit, cybernetic, high-tech, dystopian future
+ghibli: in the anime style of studio ghibli
+retro: 35mm fuji film 1970s photograph distressed and faded
+----------------------------------------
 ```
 
 ### Advanced Features
 
-Seed Variations:
+Seed and Step Variations:
 
 ```bash
-# Generate with different random seeds
-mflux-commander generate --prompt "your prompt" --vary-seed --iterations 4
+# Generate variations with different random seeds
+mflux-commander generate --prompt "your prompt" --vary-seed 4
 
-# Explore step variations with fixed seed
+# Generate variations with different step counts
 mflux-commander generate --prompt "your prompt" --seed 12345 --vary-steps 1,3,5,9
 ```
 
@@ -118,26 +128,16 @@ Brainstorming:
 ```bash
 # Generate creative prompt variations
 mflux-commander brainstorm "concept"
-
-# Generate images from specific prompts
-mflux-commander run-prompts "2,4,5"
 ```
+
+Note: Brainstorming requires the `ANTHROPIC_API_KEY` environment variable to be set.
 
 Session Management:
 
 ```bash
 # Force new session
-mflux-commander generate --prompt "your prompt" --new
-
-# Disable live preview
-mflux-commander generate --prompt "your prompt" --no-watch
+mflux-commander generate --prompt "your prompt" --force-new-session
 ```
-
-### Output Options
-
-- `--metadata` - Include generation metadata in output
-- `--output-dir DIR` - Custom output directory
-- `--no-watch` - Disable live preview
 
 ## Output Structure
 
@@ -146,15 +146,15 @@ Each session creates a directory with format `mflux_output_YYYYMMDD_HHMMSS` cont
 ```
 mflux_output_YYYYMMDD_HHMMSS/
 ├── index.html                 # Main gallery
-├── brainstorm_results.json    # Brainstorming results
+├── brainstorm_results.json    # Brainstorming results (if used)
 └── run_N/                     # Run directories
     ├── index.html            # Run gallery
-    ├── image_N.png          # Generated images
-    ├── metadata.json        # Run metadata
-    └── run_info.json        # Run configuration
+    ├── image_*.png           # Generated images
+    ├── metadata.json         # Per-image metadata
+    └── run_info.json         # Run configuration and results
 ```
 
-Sessions are maintained for 4 hours before creating a new one, or you can force a new session with `--new`.
+Sessions are maintained for 4 hours before creating a new one, or you can force a new session with `--force-new-session`.
 
 ## Installation
 
@@ -170,7 +170,6 @@ pip install mflux-commander
 
 - Python 3.8+
 - MLX (Apple Silicon only)
-- Optional: `live-server` for live preview (`npm install -g live-server`)
 
 ## Development
 

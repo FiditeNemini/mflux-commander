@@ -39,170 +39,64 @@ Dynamic: summary
 
 # MFlux Commander
 
-Use flux models on your Apple Silcon machine.
+Use flux models on your Apple Silicon machine.
 
-[filipstrand/mflux](https://github.com/filipstrand/mflux) is a A MLX port of FLUX based on the Huggingface Diffusers implementation, and `mflux-commander` is tool that lets you manage all of the parameters, so you can do things like this:
+[filipstrand/mflux](https://github.com/filipstrand/mflux) is a MLX port of FLUX based on the Huggingface Diffusers implementation, and `mflux-commander` is a tool that lets you manage all of the parameters for image generation.
 
-```
-./mflux-wrapper.py --prompt "a magical forest" --iterations 3
-```
+## Quick Start
 
-![](./docs/screenshots/magic_forest.webp)
+```bash
+# Install mflux and mflux-commander
+uv tool install -p 3.12 --upgrade mflux
+pip install mflux-commander
 
-And you can change one parameter and see a couple more variations
+# Generate an image with default settings
+mflux-commander generate --prompt "a magical forest"
 
-```
-mflux-wrapper.py --style ghibli
-```
+# Generate multiple variations
+mflux-commander generate --prompt "a magical forest" --iterations 3
 
-![](./docs/screenshots/magic_forest_ghibli.webp)
+# Apply a style
+mflux-commander generate --prompt "a magical forest" --style ghibli
 
-And if you like what you see, you can see interations of a specific seed variant:
+# Explore variations of a specific seed
+mflux-commander generate --prompt "a magical forest" --seed 185769 --vary-steps 1,3,5,9
 
-```
-./mflux-wrapper.py --seed 185769 --vary-steps 1,3,5,9
-```
-
-![](./docs/screenshots/magic_forest_iterations.webp)
-
-```
-./mflux-wrapper.py --brainstorm "homegrown software"
-```
-
-Which returns
-
-```
-Generated Prompts:
-----------------------------------------
-1. A seedling sprouting from lines of code, with soil made of circuit board patterns, captured in macro photography with morning dew on the tender green leaves representing fresh, organic software development.
-2. Weathered hands typing on a keyboard where the keys are tiny garden plots, each growing miniature digital elements like pixels and icons among the soil, with warm sunlight filtering across the workspace.
-3. A close-up of intertwined roots and ethernet cables beneath a small flowering plant, where binary code is visible as texture on the roots, creating a seamless blend between technology and organic growth.
-4. A terrarium-like environment inside a transparent computer case, where tiny plants grow among microchips and memory modules, with thin fiber-optic filaments glowing softly like irrigation lines.
-5. A macro shot of a wooden desk workspace where handwritten code notes on paper are transforming into digital elements, with coffee stains merging into circuit patterns and a small potted plant casting pixel-shaped shadows.
-----------------------------------------
-```
-
-And then you can try them out with out copy and paste.
-
-```
-./mflux-wrapper.py --run-prompt 2
+# Get creative prompt suggestions
+mflux-commander brainstorm "homegrown software"
 ```
 
 ## Overview
 
 MFlux Commander is a CLI tool for working directly with image generation models, designed for both local development and direct model exploration. Unlike polished products like Midjourney, it provides raw access to the underlying model capabilities, making it invaluable for understanding model behavior and prototyping new features.
 
-A key feature is the ability to control the number of inference steps - from quick 1-step previews that generate in seconds to detailed 9-step renders that can take minutes. This granular control lets you rapidly prototype ideas with fast previews, then refine promising directions with higher-quality renders. The tool's session management and live preview features make it feel like a proper development environment, while its command-line interface and detailed logging support automation and systematic experimentation.
+Key features include:
 
-A powerful command-line tool for managing and exploring image generation with mflux-generate. Features include:
-
-- Running multiple iterations with random or fixed seeds
-- Automatic session management and history tracking
-- Real-time progress monitoring with live preview
-- Detailed metadata tracking and command reproduction
+- Control over inference steps (1-step previews to 9-step detailed renders)
+- Session management and live preview
+- Detailed logging for automation and experimentation
+- Multiple iterations with random or fixed seeds
 - Style management and reuse
-- Interactive HTML galleries for reviewing results
-- Seed and step variation modes for exploring different parameters
-
-## Example Sessions
-
-### Basic Image Generation
-
-Generate 4 iterations of an image using the default settings:
-
-```bash
-./mflux-wrapper.py --prompt "a serene lake at sunset"
-```
-
-This will:
-
-1. Create a new session directory or use a recent one
-2. Generate 4 iterations with random seeds
-3. Open a live preview in your browser
-4. Save all results with metadata
-5. Create an interactive HTML gallery
-
-### Style Exploration
-
-Save and apply styles to maintain consistency:
-
-```bash
-# Save a style
-./mflux-wrapper.py --save-style ghibli "in the style of Studio Ghibli, hand-drawn animation"
-
-# List available styles
-./mflux-wrapper.py --list-styles
-
-# Apply a style
-./mflux-wrapper.py --prompt "a magical forest" --style ghibli
-```
-
-### Iterative Refinement
-
-Explore variations of seeds and steps:
-
-```bash
-# Generate iterations with different step counts but same seed
-./mflux-wrapper.py --prompt "a cyberpunk city" --seed 12345 --vary-steps 1,3,5,9
-
-# Generate iterations with different random seeds
-./mflux-wrapper.py --prompt "a cyberpunk city" --vary-seed --iterations 4
-
-# Refine a specific result
-./mflux-wrapper.py --prompt "a cyberpunk city" --seed 12345 --steps 5
-```
-
-### Resolution Experiments
-
-Try different aspect ratios and sizes:
-
-```bash
-# Quick preview with small format
-./mflux-wrapper.py --prompt "mountain range" --landscape-sm
-
-# Landscape format
-./mflux-wrapper.py --prompt "mountain range" --landscape-xl
-
-# Portrait format
-./mflux-wrapper.py --prompt "tall tree in forest" --portrait-lg
-
-# Custom resolution
-./mflux-wrapper.py --prompt "city skyline" --resolution 1920x1080
-```
+- Interactive HTML galleries
+- Seed and step variation modes
 
 ## Command Reference
 
-### Core Options
-
-- `--prompt TEXT` - The generation prompt (reuses last prompt if not specified)
-- `--model [schnell|dev]` - Model to use (default: schnell)
-- `--new` - Force creation of new output directory
-- `--no-watch` - Disable live preview
-- `--iterations N` - Number of iterations to generate (default: 4)
-- `--vary-seed` - Generate variations using different random seeds
-- `--seed N` - Starting seed (random if not provided, cannot be used with --vary-seed)
-- `--steps N` - Number of steps (defaults: 1 for schnell, 5 for dev)
-- `--metadata` - Include generation metadata in output
-
-### Brainstorming Features
-
-Generate and explore multiple prompt variations using Claude:
+### Basic Generation
 
 ```bash
-# Generate 5 prompt variations for a concept
-./mflux-wrapper.py --brainstorm "home grown software"
+# Basic image generation
+mflux-commander generate --prompt "your prompt"
 
-# Run specific prompts from the last brainstorm
-./mflux-wrapper.py --run-prompts "2,4,5"
+# Multiple iterations
+mflux-commander generate --prompt "your prompt" --iterations 4
+
+# Specific seed
+mflux-commander generate --prompt "your prompt" --seed 12345
+
+# Different model
+mflux-commander generate --prompt "your prompt" --model dev
 ```
-
-The brainstorm feature:
-
-- Uses Claude to generate 5 creative prompt variations
-- Saves results in the current session directory
-- Allows running specific prompts by their index numbers
-- Creates separate run directories for each selected prompt
-- Maintains all results in the same session for easy comparison
 
 ### Resolution Options
 
@@ -222,6 +116,7 @@ Large Formats:
 
 - `--landscape-lg` - Large 16:9 (1536x864)
 - `--portrait-lg` - Large 3:4 (1152x1536)
+- `--square-lg` - Large square (1536x1536)
 
 Extra Large Formats:
 
@@ -231,55 +126,110 @@ Extra Large Formats:
 
 ### Style Management
 
-- `--save-style NAME DESC` - Save a new style
-- `--list-styles` - Show all saved styles
-- `--style NAME` - Apply a saved style
-- `--style none` - Clear any existing style
+```bash
+# Save a new style
+mflux-commander save-style "cyberpunk" "neon-lit, cybernetic, high-tech, dystopian future"
+
+# List available styles
+mflux-commander list-styles
+
+# Use a style
+mflux-commander generate --prompt "city street" --style cyberpunk
+
+# Remove style
+mflux-commander generate --prompt "city street" --style none
+```
 
 ### Advanced Features
 
-- `--vary-steps N,N,N` - Comma-separated list of step counts to iterate through (requires --seed)
+Seed Variations:
+
+```bash
+# Generate with different random seeds
+mflux-commander generate --prompt "your prompt" --vary-seed --iterations 4
+
+# Explore step variations with fixed seed
+mflux-commander generate --prompt "your prompt" --seed 12345 --vary-steps 1,3,5,9
+```
+
+Brainstorming:
+
+```bash
+# Generate creative prompt variations
+mflux-commander brainstorm "concept"
+
+# Generate images from specific prompts
+mflux-commander run-prompts "2,4,5"
+```
+
+Session Management:
+
+```bash
+# Force new session
+mflux-commander generate --prompt "your prompt" --new
+
+# Disable live preview
+mflux-commander generate --prompt "your prompt" --no-watch
+```
+
+### Output Options
+
+- `--metadata` - Include generation metadata in output
 - `--output-dir DIR` - Custom output directory
-- `--metadata` - Include metadata in output
-- `--brainstorm CONCEPT` - Generate 5 prompt variations for a concept
-- `--run-prompt INDEX` - Run specific prompts from last brainstorm (e.g., "2")
+- `--no-watch` - Disable live preview
 
 ## Output Structure
 
 Each session creates a directory with format `mflux_output_YYYYMMDD_HHMMSS` containing:
 
-- `index.html` - Main gallery of all runs
-- `brainstorm_results.json` - Results from brainstorm sessions
-- `run_N/` - Directories for each generation run
-  - `index.html` - Detailed view of the run
-  - `image_N.png` - Generated images
-  - `image_N.png.json` - Metadata (if enabled)
-  - `run_info.json` - Run configuration and results
+```
+mflux_output_YYYYMMDD_HHMMSS/
+├── index.html                 # Main gallery
+├── brainstorm_results.json    # Brainstorming results
+└── run_N/                     # Run directories
+    ├── index.html            # Run gallery
+    ├── image_N.png          # Generated images
+    ├── metadata.json        # Run metadata
+    └── run_info.json        # Run configuration
+```
 
-The tool automatically manages sessions, keeping related generations together and making it easy to track and reproduce results. Sessions are maintained for 4 hours before creating a new one, or you can force a new session with the `--new` flag.
-
-## Future actions
-
-- [ ] Image to image
-- [ ] Lora models
-- [ ] Training your own model
+Sessions are maintained for 4 hours before creating a new one, or you can force a new session with `--new`.
 
 ## Installation
 
-Clone this repository and ensure the script has executable permissions:
-
 ```bash
-git clone https://github.com/yourusername/mflux-wrapper.git
-cd mflux-wrapper
-chmod +x mflux-wrapper.py
+# Install mflux
+uv tool install -p 3.12 --upgrade mflux
+
+# Install mflux-commander
+pip install mflux-commander
 ```
 
-## Requirements
+### Requirements
 
-- Python 3.6+
-- `mflux` - `uv tool install -p 3.12 --upgrade mflux`
-- `mflux-generate` command installed and in your PATH
-- Optional: `live-server` (install with `npm install -g live-server`) for live preview
+- Python 3.8+
+- MLX (Apple Silicon only)
+- Optional: `live-server` for live preview (`npm install -g live-server`)
+
+## Development
+
+```bash
+# Clone repository
+git clone https://github.com/wschenk/mflux-commander
+cd mflux-commander
+
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+```
+
+## Future Features
+
+- [ ] Image to image generation
+- [ ] Lora model support
+- [ ] Custom model training
 
 ## License
 

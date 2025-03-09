@@ -48,7 +48,7 @@ def generate(prompt: str, vary_seed: Optional[int], seed: Optional[int], vary_st
             else:
                 click.echo(f"Warning: Style '{style}' not found")
         
-        # Parse vary_steps if provided
+        # Parse vary-steps if provided
         step_list = None
         if vary_steps:
             if not seed:
@@ -153,7 +153,15 @@ def run_prompts(indices: str):
         
         for prompt in selected_prompts:
             click.echo(f"\nGenerating: {prompt}")
-            generate.callback(prompt=prompt, iterations=1, seed=None, force_new_session=False)
+            generate.callback(
+                prompt=prompt,
+                vary_seed=1,
+                seed=None,
+                vary_steps=None,
+                force_new_session=False,
+                format=None,
+                style=None
+            )
             
     except (ValueError, IndexError):
         click.echo("Invalid indices. Please provide comma-separated numbers (e.g., '1,3,5')")
