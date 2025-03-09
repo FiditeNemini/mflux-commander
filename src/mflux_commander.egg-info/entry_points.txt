@@ -1,0 +1,2 @@
+[console_scripts]
+mflux-commander = mflux_commander.cli.main:cli
