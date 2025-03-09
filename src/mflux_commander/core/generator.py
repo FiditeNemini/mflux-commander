@@ -232,6 +232,7 @@ class Generator:
                 "status": "in_progress",
                 "start_time": datetime.now().isoformat(),
                 "variation_type": "seeds",
+                "seed_variations": [],  # List to store generated seeds
                 "generation_times": [],  # List to store generation times for each image
                 "generated_files": []  # List to store metadata for each generated file
             }
@@ -244,6 +245,7 @@ class Generator:
             
             for i in range(iterations):
                 current_seed = random.randint(1, 100000)
+                run_info["seed_variations"].append(current_seed)  # Store the seed
                 output_path = run_dir / f"image_{current_seed}.png"
                 
                 cmd = [

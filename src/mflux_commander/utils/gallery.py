@@ -242,10 +242,27 @@ class GalleryGenerator:
         """Get image info including steps and metadata."""
         try:
             # First try to get seed from metadata
-            img_seed = run_info.get("seed", None)
+            img_seed = None
+            
+            # For seed variations, get the seed from the filename
+            if run_info.get("variation_type") == "seeds":
+                try:
+                    img_seed = int(img.stem.split("_")[1])
+                except (IndexError, ValueError):
+                    pass
+            
+            # For step variations, use the base seed
+            elif run_info.get("variation_type") == "steps":
+                img_seed = run_info.get("base_seed")
+            
+            # Fallback to run_info seed or extract from filename
             if img_seed is None:
-                # Fall back to extracting from filename
-                img_seed = int(img.stem.split("_")[1]) if "_" in img.stem else "Unknown"
+                img_seed = run_info.get("seed")
+                if img_seed is None:
+                    try:
+                        img_seed = int(img.stem.split("_")[1])
+                    except (IndexError, ValueError):
+                        img_seed = "Unknown"
                 
             # Get steps from filename for step variations
             img_steps = run_info.get("steps", "Unknown")
