@@ -24,13 +24,20 @@ description = "Install dependencies"
 alias = "i"
 run = "uv pip install -r requirements.txt"
 
+[tasks.setup-dev]
+description = "Set up development environment with uv"
+run = '''
+uv venv .venv
+uv pip install -e ".[dev]"
+'''
+
 [tasks.run]
 description = "Run the application"
-run = "python warc-viewer.py"
+run = "python -m mflux_commander.cli.main"
 
 [tasks.dev]
-description = "Run the application in development mode"
-run = "FLASK_ENV=development FLASK_DEBUG=1 python warc-viewer.py"
+description = "Run the application in development mode with the installed package"
+run = "pip install -e . && mflux-commander"
 
 [tasks.test]
 description = "Run tests"

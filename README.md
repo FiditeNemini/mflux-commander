@@ -177,13 +177,47 @@ pip install mflux-commander
 # Clone repository
 git clone https://github.com/wschenk/mflux-commander
 cd mflux-commander
+```
 
+### Option 1: Manual setup
+
+```bash
 # Install development dependencies
 pip install -e ".[dev]"
 
 # Run tests
 pytest
 ```
+
+### Option 2: Using mise and UV (recommended)
+
+This project uses [mise](https://mise.jdx.dev/) for tool and environment management and [UV](https://github.com/astral-sh/uv) for Python package management.
+
+```bash
+# Install mise if you haven't already
+brew install mise
+
+# Setup development environment
+mise run setup-dev
+
+# Run the application
+mise run dev
+
+# Run tests
+mise run test
+
+# Install dependencies
+mise run install
+```
+
+Available mise tasks:
+
+- `setup-dev`: Creates a virtual environment using UV and installs the package in development mode
+- `dev`: Runs the application in development mode
+- `run`: Runs the application
+- `test`: Runs the tests
+- `info`: Prints project information
+- `install`: Installs dependencies
 
 ## Future Features
 
